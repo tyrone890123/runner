@@ -89,23 +89,25 @@ body {
   right: 6px;
 }
 
-/* Floating button that restores the stats once they're hidden. */
-.hud-show {
+/* Floating buttons that restore the stats / panel once hidden. Kept on top
+   (z-index) and inside the safe area so they're always tappable on mobile. */
+.hud-show, .panel-show {
   position: absolute;
-  left: 12px;
-  bottom: 12px;
-  padding: 8px 12px;
+  z-index: 30;
+  display: none;
+  padding: 10px 14px;
   border: 1px solid var(--hairline);
-  background: rgba(14, 17, 22, 0.86);
+  background: rgba(14, 17, 22, 0.92);
   color: var(--readout);
   border-radius: 8px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
-  backdrop-filter: blur(4px);
 }
-.hud-show:hover { color: #fff; border-color: var(--label); }
-.hud-show:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.hud-show { left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); }
+.panel-show { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); }
+.hud-show:hover, .panel-show:hover { color: #fff; border-color: var(--label); }
+.hud-show:focus-visible, .panel-show:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
 body.hud-hidden .hud { display: none; }
 body.hud-hidden .hud-show { display: block; }
@@ -155,24 +157,6 @@ body.hud-hidden .hud-show { display: block; }
 }
 .icon-btn:hover { color: #fff; border-color: var(--label); }
 .icon-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
-
-/* Floating button that restores the panel once it's hidden. */
-.panel-show {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  padding: 8px 12px;
-  border: 1px solid var(--hairline);
-  background: rgba(14, 17, 22, 0.86);
-  color: var(--readout);
-  border-radius: 8px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-}
-.panel-show:hover { color: #fff; border-color: var(--label); }
-.panel-show:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
 /* Collapsed state: canvas takes the whole viewport. */
 body.panel-hidden {
