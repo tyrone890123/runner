@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Autoreel — self-playing ad simulator</title>
+  <meta name="description" content="A self-playing, endless simulator of hyper-casual mobile-ad gameplay. No player — an autonomous AI runs forever; you only tune the environment." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="stage">
+    <canvas id="game" aria-label="Autonomous gameplay simulation"></canvas>
+    <div id="hud" class="hud" role="status" aria-live="off"></div>
+  </main>
+
+  <aside class="panel" aria-label="Operator console">
+    <header class="panel-head">
+      <h1>AUTOREEL</h1>
+      <p class="panel-sub">operator console · the agent plays itself</p>
+    </header>
+    <div id="controls" class="panel-body"></div>
+    <footer class="panel-foot">config lives in the URL — copy the link to share a setup</footer>
+  </aside>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

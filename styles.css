@@ -1,0 +1,213 @@
+/* Two zones (SPEC §7): a loud plastic game canvas next to a dark, clinical
+   operator console. The panel reads like diagnostic equipment, not a menu. */
+
+:root {
+  --panel-bg: #0E1116;
+  --surface: #161B22;
+  --hairline: #2A313C;
+  --readout: #5EF2A0;
+  --label: #8A93A2;
+  --amber: #FFB020;
+  --sky: #36B6F0;
+
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #05080b;
+  color: #e6edf3;
+  font-family: var(--font-ui);
+  overflow: hidden;
+}
+
+body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* --- Game stage --- */
+.stage {
+  position: relative;
+  min-width: 0;
+  background: var(--sky);
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* --- Telemetry strip (signature element) --- */
+.hud {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(14, 17, 22, 0.86);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  backdrop-filter: blur(4px);
+}
+
+.hud-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.hud-decision { flex: 1 1 240px; }
+
+.hud-label {
+  color: var(--label);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.hud-value { color: var(--readout); font-weight: 600; }
+.hud-decision .hud-value { color: #fff; }
+.hud-conf { color: var(--amber); font-size: 11px; }
+
+.hud-flash { animation: hud-flash 0.4s ease-out; }
+@keyframes hud-flash {
+  from { color: var(--amber); }
+  to { color: #fff; }
+}
+
+/* --- Operator panel --- */
+.panel {
+  background: var(--panel-bg);
+  border-left: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-head {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.panel-head h1 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: 0.18em;
+  color: var(--readout);
+}
+
+.panel-sub {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--label);
+  font-family: var(--font-mono);
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px 16px;
+}
+
+.panel-foot {
+  padding: 10px 16px;
+  border-top: 1px solid var(--hairline);
+  font-size: 10px;
+  color: var(--label);
+  font-family: var(--font-mono);
+}
+
+.ctl-group {
+  margin-top: 14px;
+}
+
+.ctl-group h2 {
+  margin: 0 0 8px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--label);
+  border-bottom: 1px solid var(--hairline);
+  padding-bottom: 4px;
+}
+
+.ctl {
+  display: block;
+  margin: 10px 0;
+}
+
+.ctl-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  color: #c2cad4;
+  margin-bottom: 4px;
+}
+
+.ctl-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--readout);
+}
+
+.ctl input[type="range"] {
+  width: 100%;
+  accent-color: var(--readout);
+}
+
+.ctl select {
+  width: 100%;
+  background: var(--surface);
+  color: #e6edf3;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.ctl-bool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ctl-bool .ctl-label { margin-bottom: 0; flex: 1; }
+.ctl-bool input { width: 16px; height: 16px; accent-color: var(--readout); }
+
+/* Visible keyboard focus on every control (quality floor). */
+.ctl input:focus-visible,
+.ctl select:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-flash { animation: none; }
+}
+
+/* Mobile: stack the panel under the stage. */
+@media (max-width: 720px) {
+  body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+  .panel {
+    border-left: none;
+    border-top: 1px solid var(--hairline);
+    max-height: 45vh;
+  }
+}
