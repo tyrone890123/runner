@@ -19,12 +19,19 @@ const engine = createEngine(canvas, config, modes, hud);
 // --- DPR-aware canvas sizing -------------------------------------------------
 function fit() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  const w = Math.round(canvas.clientWidth * dpr);
+  const h = Math.round(canvas.clientHeight * dpr);
+  if (w === 0 || h === 0) return;              // mid-layout (e.g. panel hidden): skip
+  if (canvas.width === w && canvas.height === h) return; // unchanged: don't clear
   const ctx = canvas.getContext('2d');
-  canvas.width = Math.round(canvas.clientWidth * dpr);
-  canvas.height = Math.round(canvas.clientHeight * dpr);
+  canvas.width = w;
+  canvas.height = h;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 window.addEventListener('resize', fit);
+// Re-fit whenever the canvas itself changes size — covers showing/hiding the
+// panel, which resizes the canvas via the grid without a window resize event.
+if (window.ResizeObserver) new ResizeObserver(fit).observe(canvas);
 
 // --- Panel -------------------------------------------------------------------
 const panel = document.getElementById('controls');

@@ -48,11 +48,11 @@ function makeOp(rng, strength, ramp, good) {
 }
 
 function drawFigure(ctx, x, y, h, color) {
-  const w = h * 0.42;
+  const w = h * 0.55;
   ctx.fillStyle = color;
-  ctx.fillRect(x - w / 2, y - h * 0.7, w, h * 0.7);            // body
+  ctx.fillRect(x - w / 2, y - h * 0.6, w, h * 0.6);            // body
   ctx.beginPath();
-  ctx.arc(x, y - h * 0.82, h * 0.2, 0, Math.PI * 2);           // head
+  ctx.arc(x, y - h * 0.7, h * 0.22, 0, Math.PI * 2);          // head
   ctx.fill();
 }
 
@@ -275,11 +275,11 @@ function drawCrowd(ctx, agent, cam, config) {
   const cap = config.maxSprites;
   const shown = Math.min(cap, Math.max(1, agent.count));
   const base = cam.project({ x: agent.x, z: 1.0 });
-  const figH = cam.H * 0.12;
+  const figH = cam.H * 0.075;
   // Ground shadow to seat the crowd on the deck.
   ctx.fillStyle = 'rgba(0,0,0,0.22)';
   ctx.beginPath();
-  ctx.ellipse(base.x, base.y + 4, figH * 1.1, figH * 0.18, 0, 0, Math.PI * 2);
+  ctx.ellipse(base.x, base.y + 4, figH * 1.3, figH * 0.22, 0, 0, Math.PI * 2);
   ctx.fill();
   // arrange figures in a small block around the agent lane
   const cols = Math.min(8, Math.ceil(Math.sqrt(shown)));
