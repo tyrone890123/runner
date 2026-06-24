@@ -1,7 +1,8 @@
 // Army Battle (Last War–style) — a squad of U units advances up a top-down
 // field through operator gates and enemy waves. Simple HP trade (SPEC §4.2):
-// the squad auto-fires at the nearest enemy; enemies that reach the line cost
-// units. The AI steers toward the better gate / emptier lane.
+// the squad auto-fires only into its *current* lane; enemies that reach the
+// line in that lane cost units (others are dodged). The AI steers toward the
+// better gate / emptier lane.
 
 import { HORIZON_Z } from '../engine.js';
 import { createPool } from '../pool.js';
@@ -113,19 +114,18 @@ export const army = {
   },
 
   resolve(agent, objects, config) {
-    // Auto-fire: prefer the nearest enemy in the squad's own lane (clears the
-    // path it chose); otherwise lay suppressing fire on the nearest overall.
-    let tgt = null, tz = Infinity, laneTgt = null, ltz = Infinity;
+    // Auto-fire: the squad only engages enemies in its *current* lane. Enemies
+    // in other lanes are neither shot nor a threat — steering decides what the
+    // guns can reach.
+    let laneTgt = null, ltz = Infinity;
     for (const o of objects) {
       if (o.kind !== 'enemy' || o.dead || o.z <= 0) continue;
-      if (o.z < tz) { tz = o.z; tgt = o; }
       if (Math.abs(o.x - agent.x) < 0.32 && o.z < ltz) { ltz = o.z; laneTgt = o; }
     }
-    const fireTgt = laneTgt || tgt;
-    if (fireTgt) {
-      fireTgt.hp -= agent.count * config.unitDamage * (1 / 60);
-      agent.fireFx = fireTgt;
-      if (fireTgt.hp <= 0) fireTgt.dead = true;
+    if (laneTgt) {
+      laneTgt.hp -= agent.count * config.unitDamage * (1 / 60);
+      agent.fireFx = laneTgt;
+      if (laneTgt.hp <= 0) laneTgt.dead = true;
     } else {
       agent.fireFx = null;
     }
@@ -161,53 +161,70 @@ export const army = {
     g.addColorStop(1, '#52663f');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
-    // Lane hints
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.lineWidth = 1;
+    // Scrolling turf rows convey the advance.
+    drawRows(ctx, cam, world.distance, 'rgba(255,255,255,0.05)', 6);
+    // Lane guides
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 1;
     for (const lx of [-LANE, 0, LANE]) {
       const a = cam.project({ x: lx, z: 0 }), b = cam.project({ x: lx, z: HORIZON_Z });
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
+
+    // Highlight the squad's firing lane.
+    const ha = cam.project({ x: agent.x - 0.16, z: 0 }), hb = cam.project({ x: agent.x + 0.16, z: 0 });
+    const hc = cam.project({ x: agent.x + 0.09, z: 22 }), hd = cam.project({ x: agent.x - 0.09, z: 22 });
+    ctx.fillStyle = hexA(c.unit, 0.12);
+    ctx.beginPath();
+    ctx.moveTo(ha.x, ha.y); ctx.lineTo(hb.x, hb.y); ctx.lineTo(hc.x, hc.y); ctx.lineTo(hd.x, hd.y);
+    ctx.closePath(); ctx.fill();
 
     const objs = world.objects.slice().sort((a, b) => b.z - a.z);
     for (const o of objs) {
       if (o.z < -2) continue;
       const p = cam.project({ x: o.x, z: o.z });
       if (o.kind === 'gate') {
-        const w = W * 0.3 * p.scale, h = H * 0.04 * p.scale + 8;
-        ctx.fillStyle = isGood(o.op) ? hexA(c.gateGood, 0.8) : hexA(c.gateBad, 0.8);
-        ctx.fillRect(p.x - w / 2, p.y - h / 2, w, h);
-        ctx.fillStyle = '#fff';
-        ctx.font = `900 ${Math.max(10, h * 0.9)}px "Arial Black", Arial, sans-serif`;
+        const good = isGood(o.op);
+        const col = good ? c.gateGood : c.gateBad;
+        const w = W * 0.3 * p.scale, h = H * 0.05 * p.scale + 10;
+        const x = p.x - w / 2, y = p.y - h / 2;
+        ctx.fillStyle = hexA(col, 0.55); ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, 3 * p.scale); ctx.strokeRect(x, y, w, h);
+        const fs = Math.max(11, h * 0.8);
+        ctx.font = `900 ${fs}px "Arial Black", Arial, sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(opLabel(o.op), p.x, p.y);
+        ctx.fillStyle = '#fff'; ctx.fillText(opLabel(o.op), p.x, p.y);
       } else if (o.kind === 'enemy' && !o.dead) {
-        drawSquad(ctx, p, o.size, c.enemy, cam);
+        drawCluster(ctx, p, o.size, c.enemy);
+        const top = p.y - 18 * p.scale - 10;
+        const bw = 26 * p.scale + 14;
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(p.x - bw / 2, top, bw, 4);
+        ctx.fillStyle = c.gateBad; ctx.fillRect(p.x - bw / 2, top, bw * (o.hp / o.maxHp), 4);
         ctx.fillStyle = '#fff';
-        ctx.font = `900 ${Math.max(10, 18 * p.scale)}px "Arial Black", Arial, sans-serif`;
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 3;
+        ctx.font = `900 ${Math.max(11, 20 * p.scale)}px "Arial Black", Arial, sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        ctx.fillText(String(o.size), p.x, p.y - 16 * p.scale);
+        ctx.strokeText(String(o.size), p.x, top - 2);
+        ctx.fillText(String(o.size), p.x, top - 2);
       }
     }
 
-    // Muzzle line
+    // Bullets streaming up the firing lane.
     if (agent.fireFx && !agent.fireFx.dead) {
-      const a = cam.project({ x: agent.x, z: 1 });
-      const b = cam.project({ x: agent.fireFx.x, z: agent.fireFx.z });
-      ctx.strokeStyle = hexA(c.gold, 0.7); ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      const from = cam.project({ x: agent.x, z: 1 });
+      const to = cam.project({ x: agent.fireFx.x, z: agent.fireFx.z });
+      drawTracers(ctx, from, to, world.time, c.gold);
     }
 
     // Squad
     const sp = cam.project({ x: agent.x, z: 1 });
-    drawSquad(ctx, sp, Math.min(60, agent.count), c.unit, cam);
+    drawCluster(ctx, sp, Math.min(60, agent.count), c.unit);
     ctx.fillStyle = '#fff';
     ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 4;
     ctx.font = `900 ${H * 0.06}px "Arial Black", Arial, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     const label = String(Math.floor(agent.count));
-    ctx.strokeText(label, sp.x, sp.y - 40);
-    ctx.fillText(label, sp.x, sp.y - 40);
+    ctx.strokeText(label, sp.x, sp.y - 44);
+    ctx.fillText(label, sp.x, sp.y - 44);
   },
 
   telemetry(agent, action) {
@@ -224,22 +241,61 @@ export const army = {
   },
 };
 
-function drawSquad(ctx, p, n, color, cam) {
+function drawCluster(ctx, p, n, color) {
   const shown = Math.min(40, Math.max(1, n));
   const cols = Math.min(7, Math.ceil(Math.sqrt(shown)));
   const rows = Math.ceil(shown / cols);
-  const r = Math.max(2, 7 * p.scale);
+  const r = Math.max(2.5, 7 * p.scale);
+  // grouped ground shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath();
+  ctx.ellipse(p.x, p.y + r * 0.8, cols * r * 1.3, rows * r * 0.8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  const light = shade(color, 1.25), dark = shade(color, 0.7);
   let k = 0;
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols && k < shown; col++, k++) {
       const ox = (col - (cols - 1) / 2) * r * 2.2;
       const oy = (row - (rows - 1) / 2) * r * 2.2;
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(p.x + ox, p.y + oy, r, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = dark;
+      ctx.beginPath(); ctx.arc(p.x + ox, p.y + oy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = light;
+      ctx.beginPath(); ctx.arc(p.x + ox - r * 0.3, p.y + oy - r * 0.3, r * 0.5, 0, Math.PI * 2); ctx.fill();
     }
   }
+}
+
+// Cross-field rows that scroll toward the squad to convey forward motion.
+function drawRows(ctx, cam, dist, color, spacing) {
+  ctx.strokeStyle = color; ctx.lineWidth = 2;
+  const off = ((dist % spacing) + spacing) % spacing;
+  for (let rz = HORIZON_Z - off; rz > 0.3; rz -= spacing) {
+    const a = cam.project({ x: -1.05, z: rz }), b = cam.project({ x: 1.05, z: rz });
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+}
+
+function drawTracers(ctx, from, to, time, color) {
+  for (let k = 0; k < 4; k++) {
+    const f = (time * 3.2 + k / 4) % 1;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(from.x + (to.x - from.x) * f, from.y + (to.y - from.y) * f, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // muzzle flash + impact
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.beginPath(); ctx.arc(from.x, from.y, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = hexA(color, 0.9);
+  ctx.beginPath(); ctx.arc(to.x, to.y, 4 + 2 * Math.abs(Math.sin(time * 18)), 0, Math.PI * 2); ctx.fill();
+}
+
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, Math.round(((n >> 16) & 255) * f));
+  const g = Math.min(255, Math.round(((n >> 8) & 255) * f));
+  const b = Math.min(255, Math.round((n & 255) * f));
+  return `rgb(${r},${g},${b})`;
 }
 
 function hexA(hex, a) {

@@ -165,56 +165,45 @@ export const runner = {
     ctx.fillStyle = g;
     ctx.fillRect(0, H * 0.18, W, H);
 
-    // Track + lane dividers
-    const edgeN = cam.project({ x: -1.05, z: 0 }), edgeF = cam.project({ x: -1.05, z: HORIZON_Z });
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-    ctx.lineWidth = 2;
+    const gap = laneX(1, n) - laneX(0, n);
+    const edgeHalf = SPREAD + gap / 2;
+
+    // Track surface
+    const nl = cam.project({ x: -edgeHalf, z: 0 }), nr = cam.project({ x: edgeHalf, z: 0 });
+    const fl = cam.project({ x: -edgeHalf, z: HORIZON_Z }), fr = cam.project({ x: edgeHalf, z: HORIZON_Z });
+    ctx.fillStyle = '#8a9099';
+    ctx.beginPath();
+    ctx.moveTo(nl.x, nl.y); ctx.lineTo(nr.x, nr.y); ctx.lineTo(fr.x, fr.y); ctx.lineTo(fl.x, fl.y);
+    ctx.closePath(); ctx.fill();
+
+    // Scrolling ties convey speed.
+    drawRungs(ctx, cam, world.distance, 'rgba(0,0,0,0.13)', 4, edgeHalf);
+
+    // Lane dividers
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2;
     for (let i = 0; i <= n; i++) {
-      const lx = (i - n / 2) / (n / 2) * SPREAD * (n / Math.max(1, n - 1));
+      const lx = laneX(0, n) - gap / 2 + i * gap;
       const a = cam.project({ x: lx, z: 0 }), b = cam.project({ x: lx, z: HORIZON_Z });
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
+
+    // Highlight the runner's current lane.
+    const half = gap / 2;
+    const la = cam.project({ x: agent.x - half, z: 0 }), lb = cam.project({ x: agent.x + half, z: 0 });
+    const lc = cam.project({ x: agent.x + half * 0.6, z: 20 }), ld = cam.project({ x: agent.x - half * 0.6, z: 20 });
+    ctx.fillStyle = hexA(c.unit, 0.12);
+    ctx.beginPath();
+    ctx.moveTo(la.x, la.y); ctx.lineTo(lb.x, lb.y); ctx.lineTo(lc.x, lc.y); ctx.lineTo(ld.x, ld.y);
+    ctx.closePath(); ctx.fill();
 
     const objs = world.objects.slice().sort((a, b) => b.z - a.z);
     for (const o of objs) {
       if (o.dead || o.z < -2) continue;
       const p = cam.project({ x: laneX(o.lane, n), z: o.z });
-      const w = W * 0.16 * p.scale;
-      if (o.type === 'low') {
-        const h = H * 0.07 * p.scale;
-        ctx.fillStyle = c.gateBad;
-        ctx.fillRect(p.x - w / 2, p.y - h, w, h);
-      } else if (o.type === 'high') {
-        const h = H * 0.06 * p.scale;
-        ctx.fillStyle = c.gold;
-        ctx.fillRect(p.x - w / 2, p.y - H * 0.28 * p.scale, w, h);
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.fillRect(p.x - w * 0.1, p.y - H * 0.28 * p.scale, w * 0.2, H * 0.28 * p.scale);
-      } else {
-        const h = H * 0.22 * p.scale;
-        ctx.fillStyle = '#3a3f46';
-        ctx.fillRect(p.x - w / 2, p.y - h, w, h);
-      }
+      drawObstacle(ctx, o, p, W, H, c);
     }
 
-    // Runner
-    const p = cam.project({ x: agent.x, z: 1.3 });
-    let figH = H * 0.16, yOff = 0, squash = 1;
-    if (agent.state === 'jump') {
-      const t = 1 - agent.stateT / JUMP_T;
-      yOff = -Math.sin(t * Math.PI) * H * 0.16;
-    } else if (agent.state === 'slide') {
-      squash = 0.5;
-    }
-    const flicker = agent.invuln > 0 && Math.floor(world.time * 12) % 2 === 0;
-    if (!flicker) {
-      ctx.fillStyle = c.unit;
-      const w = figH * 0.5;
-      ctx.fillRect(p.x - w / 2, p.y - figH * squash + yOff, w, figH * squash);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y - figH * squash + yOff - figH * 0.12, figH * 0.18, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    drawRunner(ctx, agent, cam, config, world.time);
   },
 
   telemetry(agent, action, world) {
@@ -229,3 +218,133 @@ export const runner = {
 
   release(o) { if (o.kind === 'obstacle') obsPool.release(o); },
 };
+
+function roundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function shadowEllipse(ctx, x, y, r) {
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.22, 0, 0, Math.PI * 2); ctx.fill();
+}
+
+function hazardStripes(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  const step = Math.max(6, h * 0.6);
+  for (let i = -h; i < w; i += step * 2) {
+    ctx.beginPath();
+    ctx.moveTo(x + i, y); ctx.lineTo(x + i + h, y + h);
+    ctx.lineTo(x + i + h + step, y + h); ctx.lineTo(x + i + step, y);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// A triangle cue above/below an obstacle telling you the action it demands.
+function drawCue(ctx, x, y, dir, color, scale) {
+  const s = Math.max(8, 14 * scale);
+  ctx.fillStyle = color; ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  if (dir === 'up') { ctx.moveTo(x, y - s); ctx.lineTo(x + s * 0.7, y); ctx.lineTo(x - s * 0.7, y); }
+  else { ctx.moveTo(x, y + s); ctx.lineTo(x + s * 0.7, y); ctx.lineTo(x - s * 0.7, y); }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+}
+
+function drawObstacle(ctx, o, p, W, H, c) {
+  const w = W * 0.18 * p.scale;
+  const x = p.x - w / 2;
+  if (o.type === 'low') {
+    // hurdle: jump it
+    const h = H * 0.08 * p.scale, y = p.y - h;
+    shadowEllipse(ctx, p.x, p.y, w * 0.55);
+    ctx.fillStyle = c.gateBad; roundRect(ctx, x, y, w, h, 4); ctx.fill();
+    hazardStripes(ctx, x, y, w, h);
+    drawCue(ctx, p.x, y - 8 * p.scale - 6, 'up', c.gateGood, p.scale);
+  } else if (o.type === 'high') {
+    // overhead bar: slide under it
+    const barY = p.y - H * 0.30 * p.scale, h = H * 0.06 * p.scale;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(x, barY, w * 0.09, p.y - barY);
+    ctx.fillRect(x + w - w * 0.09, barY, w * 0.09, p.y - barY);
+    ctx.fillStyle = c.gold; ctx.fillRect(x, barY, w, h);
+    hazardStripes(ctx, x, barY, w, h);
+    drawCue(ctx, p.x, barY + h + 12 * p.scale, 'down', c.gateGood, p.scale);
+  } else {
+    // full barrier: switch lanes
+    const h = H * 0.24 * p.scale, y = p.y - h;
+    shadowEllipse(ctx, p.x, p.y, w * 0.55);
+    ctx.fillStyle = '#2b2f36'; roundRect(ctx, x, y, w, h, 6); ctx.fill();
+    hazardStripes(ctx, x, y + h * 0.18, w, h * 0.64);
+    ctx.strokeStyle = c.gateBad; ctx.lineWidth = Math.max(2, 4 * p.scale);
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.22, y + h * 0.32); ctx.lineTo(x + w * 0.78, y + h * 0.68);
+    ctx.moveTo(x + w * 0.78, y + h * 0.32); ctx.lineTo(x + w * 0.22, y + h * 0.68);
+    ctx.stroke();
+  }
+}
+
+function drawRunner(ctx, agent, cam, config, time) {
+  const c = config.colors, H = cam.H;
+  const p = cam.project({ x: agent.x, z: 1.3 });
+  let figH = H * 0.16, yOff = 0, squash = 1;
+  if (agent.state === 'jump') {
+    const t = 1 - agent.stateT / JUMP_T;
+    yOff = -Math.sin(t * Math.PI) * H * 0.18;
+  } else if (agent.state === 'slide') {
+    squash = 0.5;
+  }
+  shadowEllipse(ctx, p.x, p.y, figH * 0.45 * (1 - Math.min(0.5, -yOff / (H * 0.3))));
+  if (agent.invuln > 0 && Math.floor(time * 12) % 2 === 0) return;
+
+  const w = figH * 0.5;
+  const bodyH = figH * 0.62 * squash;
+  const topY = p.y - bodyH + yOff;
+  // legs
+  if (agent.state !== 'slide') {
+    const sw = agent.state === 'run' ? Math.sin(time * 18) * w * 0.45 : 0;
+    ctx.fillStyle = shade(c.unit, 0.6);
+    ctx.fillRect(p.x - w * 0.42 + sw * 0.5, p.y - figH * 0.2 + yOff, w * 0.28, figH * 0.22);
+    ctx.fillRect(p.x + w * 0.14 - sw * 0.5, p.y - figH * 0.2 + yOff, w * 0.28, figH * 0.22);
+  }
+  // body
+  const grad = ctx.createLinearGradient(p.x - w / 2, topY, p.x + w / 2, topY);
+  grad.addColorStop(0, shade(c.unit, 0.8));
+  grad.addColorStop(1, shade(c.unit, 1.2));
+  ctx.fillStyle = grad;
+  roundRect(ctx, p.x - w / 2, topY, w, bodyH, w * 0.25); ctx.fill();
+  // head
+  ctx.fillStyle = shade(c.unit, 1.25);
+  ctx.beginPath(); ctx.arc(p.x, topY - figH * 0.1, figH * 0.15, 0, Math.PI * 2); ctx.fill();
+}
+
+// Scrolling cross-ties marching toward the camera as distance grows.
+function drawRungs(ctx, cam, dist, color, spacing, xHalf) {
+  ctx.strokeStyle = color; ctx.lineWidth = 2;
+  const off = ((dist % spacing) + spacing) % spacing;
+  for (let rz = HORIZON_Z - off; rz > 0.3; rz -= spacing) {
+    const a = cam.project({ x: -xHalf, z: rz }), b = cam.project({ x: xHalf, z: rz });
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+}
+
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, Math.round(((n >> 16) & 255) * f));
+  const g = Math.min(255, Math.round(((n >> 8) & 255) * f));
+  const b = Math.min(255, Math.round((n & 255) * f));
+  return `rgb(${r},${g},${b})`;
+}
+
+function hexA(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
