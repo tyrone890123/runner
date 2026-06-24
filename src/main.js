@@ -149,9 +149,10 @@ setInterval(() => {
 const panelHide = document.getElementById('panelHide');
 const panelShow = document.getElementById('panelShow');
 function setPanelHidden(hidden) {
+  // Visibility of the panel and its restore button is driven entirely by this
+  // class (see styles.css), so a stuck attribute can't make it unreopenable.
   document.body.classList.toggle('panel-hidden', hidden);
   panelHide.setAttribute('aria-expanded', String(!hidden));
-  panelShow.hidden = !hidden;
   // Canvas client size changed; re-fit the backing store on the next frame.
   requestAnimationFrame(fit);
 }
@@ -163,7 +164,6 @@ const hudHide = document.querySelector('#hud [data-hud-hide]');
 const hudShow = document.getElementById('hudShow');
 function setHudHidden(hidden) {
   document.body.classList.toggle('hud-hidden', hidden);
-  hudShow.hidden = !hidden;
 }
 if (hudHide) hudHide.addEventListener('click', () => setHudHidden(true));
 hudShow.addEventListener('click', () => setHudHidden(false));
