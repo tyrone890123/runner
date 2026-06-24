@@ -89,23 +89,24 @@ body {
   right: 6px;
 }
 
-/* Floating buttons that restore the stats / panel once hidden. Kept on top
-   (z-index) and inside the safe area so they're always tappable on mobile. */
+/* Floating controls. The panel toggle (⚙) is ALWAYS visible so the panel can
+   never become unreopenable; the stats restore button appears only when the
+   HUD is hidden. Kept on top (z-index) and inside the safe area for mobile. */
 .hud-show, .panel-show {
   position: absolute;
   z-index: 30;
-  display: none;
   padding: 10px 14px;
   border: 1px solid var(--hairline);
   background: rgba(14, 17, 22, 0.92);
   color: var(--readout);
   border-radius: 8px;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1;
   cursor: pointer;
 }
-.hud-show { left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); }
-.panel-show { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); }
+.hud-show { display: none; left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); }
+.panel-show { display: block; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); }
 .hud-show:hover, .panel-show:hover { color: #fff; border-color: var(--label); }
 .hud-show:focus-visible, .panel-show:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
@@ -158,13 +159,12 @@ body.hud-hidden .hud-show { display: block; }
 .icon-btn:hover { color: #fff; border-color: var(--label); }
 .icon-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
-/* Collapsed state: canvas takes the whole viewport. */
+/* Collapsed state: canvas takes the whole viewport. The ⚙ toggle stays put. */
 body.panel-hidden {
   grid-template-columns: 1fr;
   grid-template-rows: 1fr;
 }
 body.panel-hidden .panel { display: none; }
-body.panel-hidden .panel-show { display: block; }
 
 .panel-sub {
   margin: 4px 0 0;
