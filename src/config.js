@@ -49,9 +49,8 @@ export const SCHEMA = [
 
   // --- army ---
   { key: 'startSquad', url: 'sq', type: 'range', min: 1, max: 60, step: 1, def: 12, group: 'army', label: 'Start squad' },
-  { key: 'unitHp', url: 'hp', type: 'range', min: 1, max: 8, step: 1, def: 3, group: 'army', label: 'Unit HP' },
-  { key: 'unitDamage', url: 'dmg', type: 'range', min: 0.5, max: 6, step: 0.5, def: 1.5, group: 'army', label: 'Unit damage' },
-  { key: 'enemyDensity', url: 'ed', type: 'range', min: 0.3, max: 3, step: 0.05, def: 1, group: 'army', label: 'Enemy density' },
+  { key: 'enemyDensity', url: 'ed', type: 'range', min: 0.3, max: 3, step: 0.05, def: 1, group: 'army', label: 'Enemy frequency' },
+  { key: 'allyFreq', url: 'al', type: 'range', min: 0, max: 2, step: 0.05, def: 0.8, group: 'army', label: 'Ally frequency' },
   { key: 'armyGateStrength', url: 'ags', type: 'range', min: 1, max: 3, step: 0.1, def: 1.6, group: 'army', label: 'Gate strength' },
 
   // --- runner ---

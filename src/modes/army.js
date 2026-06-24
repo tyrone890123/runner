@@ -1,18 +1,34 @@
 // Army Battle (Last War–style) — a squad of U units advances up a top-down
-// field through operator gates and enemy waves. Simple HP trade (SPEC §4.2):
-// the squad auto-fires only into its *current* lane; enemies that reach the
-// line in that lane cost units (others are dodged). The AI steers toward the
-// better gate / emptier lane.
+// field. No guns (that overlaps with Bridge Runner's auto-fire): clusters are
+// resolved by *count on contact*.
+//   - Red enemy clusters: if U > E you swarm/wrap them and win (losing E units);
+//     if they're bigger you're overrun → respawn.
+//   - Blue allied clusters (same colour as the squad): they join — U += A.
+//   - Operator gates (+ − × ÷): modify U en route.
+// The AI steers to recruit allies, take growth gates, swarm smaller enemies,
+// and flee bigger ones.
 
 import { HORIZON_Z } from '../engine.js';
 import { createPool } from '../pool.js';
 
 const LANE = 0.55;
+const BAND = 0.30;   // how close in x a cluster must be to clash with the squad
 
 const gatePool = createPool(() => ({ kind: 'gate' }), (o) => { o.consumed = false; o.dead = false; });
 const enemyPool = createPool(() => ({ kind: 'enemy' }), (o) => { o.dead = false; });
+const allyPool = createPool(() => ({ kind: 'ally' }), (o) => { o.dead = false; });
+const burstPool = createPool(() => ({ kind: 'burst' }), (o) => { o.dead = false; });
 
 let pairId = 0;
+// Last seen squad size, so waves scale to the army (keeps the swarm-or-flee
+// decision live instead of letting the squad snowball past all threat).
+let scaleRef = 12;
+
+function spawnBurst(objects, x, z, size, color) {
+  const b = burstPool.acquire();
+  b.x = x; b.z = z; b.life = 0.4; b.maxLife = 0.4; b.size = size; b.color = color;
+  objects.push(b);
+}
 
 function applyOp(n, op) {
   switch (op.type) {
@@ -45,8 +61,8 @@ export const army = {
     a.x = 0;
     a.targetX = 0;
     a.dead = false;
-    a._gate = null;
-    a.fireFx = null;
+    a._lanes = null;
+    scaleRef = config.startSquad;
     if (!agent) { for (const o of world.objects) this.release(o); world.objects.length = 0; }
     return a;
   },
@@ -54,14 +70,21 @@ export const army = {
   spawnAhead(z, config, rng, ramp) {
     const out = [];
     const r = rng.float();
-    if (r < 0.45 * config.enemyDensity) {
-      // enemy cluster in one lane
+    const enemyW = 0.4 * config.enemyDensity;
+    const allyW = 0.3 * config.allyFreq;
+    const ref = Math.max(4, scaleRef);
+    if (r < enemyW) {
       const e = enemyPool.acquire();
-      e.x = rng.pick([-LANE, 0, LANE]) + rng.range(-0.1, 0.1);
-      e.size = Math.max(1, Math.round(rng.range(2, 6) * ramp));
-      e.maxHp = Math.round((2 + 2.5 * ramp) * e.size);
-      e.hp = e.maxHp;
+      e.x = rng.pick([-LANE, 0, LANE]) + rng.range(-0.08, 0.08);
+      // Roughly proportional to the army; difficulty skews waves bigger so they
+      // more often exceed U (a clash that must be fled, not swarmed).
+      e.count = Math.max(2, Math.round(ref * rng.range(0.45, 1.1 + 0.25 * config.difficulty)));
       out.push(e);
+    } else if (r < enemyW + allyW) {
+      const a = allyPool.acquire();
+      a.x = rng.pick([-LANE, 0, LANE]) + rng.range(-0.08, 0.08);
+      a.count = Math.max(1, Math.round(ref * rng.range(0.15, 0.4)));
+      out.push(a);
     } else {
       const id = ++pairId;
       const leftGood = rng.chance(0.5);
@@ -82,23 +105,28 @@ export const army = {
 
   perceive(agent, objects) {
     const cands = { L: -LANE, C: 0, R: LANE };
-    const values = {};
-    let nearGate = null, ngz = Infinity;
+    const info = {}, values = {};
     for (const key in cands) {
       const cx = cands[key];
-      let gateVal = agent.count, threat = 0;
+      let near = null, nz = Infinity;
       for (const o of objects) {
-        if (o.z <= 0) continue;
-        if (o.kind === 'gate' && !o.consumed && Math.abs(o.x - cx) < 0.32) {
-          gateVal = applyOp(agent.count, o.op);
-          if (o.z < ngz) { ngz = o.z; nearGate = o; }
-        } else if (o.kind === 'enemy' && !o.dead && Math.abs(o.x - cx) < 0.32 && o.z < 30) {
-          threat += o.hp;
-        }
+        if (o.z <= 0 || o.dead || o.kind === 'burst') continue;
+        const band = o.kind === 'gate' ? 0.32 : BAND;
+        if (Math.abs(o.x - cx) >= band) continue;
+        if (o.z < nz) { nz = o.z; near = o; }
       }
-      values[key] = gateVal - threat * 0.4;
+      info[key] = near;
+      // Estimate the squad size after committing to this lane's nearest object.
+      let est = agent.count;
+      if (near) {
+        if (near.kind === 'gate') est = applyOp(agent.count, near.op);
+        else if (near.kind === 'ally') est = agent.count + near.count;
+        else if (near.kind === 'enemy') est = agent.count > near.count ? agent.count - near.count : -100;
+      }
+      values[key] = est;
     }
-    agent._gate = nearGate;
+    agent._lanes = info;
+    scaleRef = agent.count;
     return { values };
   },
 
@@ -113,34 +141,23 @@ export const army = {
     agent.lastKey = action.key;
   },
 
-  resolve(agent, objects, config) {
-    // Auto-fire: the squad only engages enemies in its *current* lane. Enemies
-    // in other lanes are neither shot nor a threat — steering decides what the
-    // guns can reach.
-    let laneTgt = null, ltz = Infinity;
+  resolve(agent, objects) {
     for (const o of objects) {
-      if (o.kind !== 'enemy' || o.dead || o.z <= 0) continue;
-      if (Math.abs(o.x - agent.x) < 0.32 && o.z < ltz) { ltz = o.z; laneTgt = o; }
-    }
-    if (laneTgt) {
-      laneTgt.hp -= agent.count * config.unitDamage * (1 / 60);
-      agent.fireFx = laneTgt;
-      if (laneTgt.hp <= 0) laneTgt.dead = true;
-    } else {
-      agent.fireFx = null;
-    }
-
-    for (const o of objects) {
-      if (o.z > 0) continue;
+      if (o.kind === 'burst') { o.life -= 1 / 60; if (o.life <= 0) o.dead = true; continue; }
+      if (o.z > 0 || o.dead) continue;
       if (o.kind === 'gate' && !o.consumed) {
         const matched = (o.side === 'L' && agent.x < 0) || (o.side === 'R' && agent.x >= 0);
         if (matched) agent.count = Math.round(applyOp(agent.count, o.op));
         o.consumed = true; o.dead = true;
-      } else if (o.kind === 'enemy' && !o.dead) {
-        // Only enemies that reach the line in the squad's lane trade HP; ones in
-        // other lanes were dodged. Steering (AI skill) therefore matters.
-        if (Math.abs(o.x - agent.x) < 0.32) {
-          agent.count -= Math.max(1, Math.ceil(o.hp / config.unitHp));
+      } else if (o.kind === 'ally') {
+        // Same colour as the squad: they join.
+        if (Math.abs(o.x - agent.x) < BAND) { agent.count += o.count; spawnBurst(objects, o.x, 1, o.count, 'ally'); }
+        o.dead = true;
+      } else if (o.kind === 'enemy') {
+        // Count battle: the bigger force wins; a clash in another lane is dodged.
+        if (Math.abs(o.x - agent.x) < BAND) {
+          if (agent.count > o.count) { agent.count -= o.count; spawnBurst(objects, o.x, 1, o.count, 'win'); }
+          else { agent.count = 0; spawnBurst(objects, o.x, 1, o.count, 'lose'); }
         }
         o.dead = true;
       }
@@ -155,14 +172,13 @@ export const army = {
     const c = config.colors, W = cam.W, H = cam.H;
     const agent = world.agent;
 
-    // Field
     const g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, '#3a4a2e');
     g.addColorStop(1, '#52663f');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
-    // Scrolling turf rows convey the advance.
     drawRows(ctx, cam, world.distance, 'rgba(255,255,255,0.05)', 6);
+    drawHQ(ctx, cam, c);
     // Lane guides
     ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 1;
     for (const lx of [-LANE, 0, LANE]) {
@@ -170,7 +186,7 @@ export const army = {
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
 
-    // Highlight the squad's firing lane.
+    // Highlight the squad's current lane (where clashes happen).
     const ha = cam.project({ x: agent.x - 0.16, z: 0 }), hb = cam.project({ x: agent.x + 0.16, z: 0 });
     const hc = cam.project({ x: agent.x + 0.09, z: 22 }), hd = cam.project({ x: agent.x - 0.09, z: 22 });
     ctx.fillStyle = hexA(c.unit, 0.12);
@@ -183,36 +199,34 @@ export const army = {
       if (o.z < -2) continue;
       const p = cam.project({ x: o.x, z: o.z });
       if (o.kind === 'gate') {
-        const good = isGood(o.op);
-        const col = good ? c.gateGood : c.gateBad;
+        const col = isGood(o.op) ? c.gateGood : c.gateBad;
         const w = W * 0.3 * p.scale, h = H * 0.05 * p.scale + 10;
         const x = p.x - w / 2, y = p.y - h / 2;
         ctx.fillStyle = hexA(col, 0.55); ctx.fillRect(x, y, w, h);
         ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, 3 * p.scale); ctx.strokeRect(x, y, w, h);
-        const fs = Math.max(11, h * 0.8);
-        ctx.font = `900 ${fs}px "Arial Black", Arial, sans-serif`;
+        ctx.font = `900 ${Math.max(11, h * 0.8)}px "Arial Black", Arial, sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillStyle = '#fff'; ctx.fillText(opLabel(o.op), p.x, p.y);
       } else if (o.kind === 'enemy' && !o.dead) {
-        drawCluster(ctx, p, o.size, c.enemy);
-        const top = p.y - 18 * p.scale - 10;
-        const bw = 26 * p.scale + 14;
-        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(p.x - bw / 2, top, bw, 4);
-        ctx.fillStyle = c.gateBad; ctx.fillRect(p.x - bw / 2, top, bw * (o.hp / o.maxHp), 4);
-        ctx.fillStyle = '#fff';
-        ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 3;
-        ctx.font = `900 ${Math.max(11, 20 * p.scale)}px "Arial Black", Arial, sans-serif`;
-        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        ctx.strokeText(String(o.size), p.x, top - 2);
-        ctx.fillText(String(o.size), p.x, top - 2);
+        // Squad units wrap around an enemy as it's about to be engaged.
+        if (Math.abs(o.x - agent.x) < BAND && o.z < 8 && agent.count > o.count) drawWrap(ctx, p, c.unit);
+        drawCluster(ctx, p, o.count, c.enemy);
+        clusterLabel(ctx, p, String(o.count), '#fff');
+      } else if (o.kind === 'ally' && !o.dead) {
+        drawCluster(ctx, p, o.count, c.unit);
+        // green ring marks them as joinable
+        ctx.strokeStyle = c.gateGood; ctx.lineWidth = Math.max(2, 2.5 * p.scale);
+        ctx.beginPath(); ctx.arc(p.x, p.y, (14 + o.count) * p.scale, 0, Math.PI * 2); ctx.stroke();
+        clusterLabel(ctx, p, '+' + o.count, c.gateGood);
+      } else if (o.kind === 'burst') {
+        const t = 1 - o.life / o.maxLife;
+        const col = o.color === 'ally' ? c.gateGood : o.color === 'lose' ? c.gateBad : c.gold;
+        const r = (10 + (o.size || 3) * 3) * p.scale * (0.5 + t);
+        ctx.strokeStyle = hexA(col, 1 - t); ctx.lineWidth = 3 * (1 - t) + 1;
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = hexA('#ffffff', (1 - t) * 0.6);
+        ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.4, 0, Math.PI * 2); ctx.fill();
       }
-    }
-
-    // Bullets streaming up the firing lane.
-    if (agent.fireFx && !agent.fireFx.dead) {
-      const from = cam.project({ x: agent.x, z: 1 });
-      const to = cam.project({ x: agent.fireFx.x, z: agent.fireFx.z });
-      drawTracers(ctx, from, to, world.time, c.gold);
     }
 
     // Squad
@@ -229,8 +243,15 @@ export const army = {
 
   telemetry(agent, action) {
     let decision = 'advance';
-    if (agent._gate && action) {
-      decision = `lane ${action.key} ▸ ${opLabel(agent._gate.op)}`;
+    if (action && agent._lanes) {
+      const o = agent._lanes[action.key];
+      if (o) {
+        if (o.kind === 'gate') decision = `lane ${action.key} ▸ ${opLabel(o.op)}`;
+        else if (o.kind === 'ally') decision = `recruit +${o.count}`;
+        else if (o.kind === 'enemy') {
+          decision = agent.count > o.count ? `swarm ${o.count} (we ${agent.count})` : `flee ${o.count}!`;
+        }
+      }
     }
     return { decision, agent: agent.count };
   },
@@ -238,15 +259,38 @@ export const army = {
   release(o) {
     if (o.kind === 'gate') gatePool.release(o);
     else if (o.kind === 'enemy') enemyPool.release(o);
+    else if (o.kind === 'ally') allyPool.release(o);
+    else if (o.kind === 'burst') burstPool.release(o);
   },
 };
+
+function clusterLabel(ctx, p, text, color) {
+  const top = p.y - 18 * p.scale - 8;
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 3;
+  ctx.font = `900 ${Math.max(11, 20 * p.scale)}px "Arial Black", Arial, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.strokeText(text, p.x, top);
+  ctx.fillText(text, p.x, top);
+}
+
+// A ring of squad dots flanking a cluster — the "wrap around" before a clash.
+function drawWrap(ctx, p, color) {
+  const r = 22 * p.scale, dot = Math.max(2, 4 * p.scale);
+  ctx.fillStyle = color;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r * 0.7, dot, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
 
 function drawCluster(ctx, p, n, color) {
   const shown = Math.min(40, Math.max(1, n));
   const cols = Math.min(7, Math.ceil(Math.sqrt(shown)));
   const rows = Math.ceil(shown / cols);
   const r = Math.max(2.5, 7 * p.scale);
-  // grouped ground shadow
   ctx.fillStyle = 'rgba(0,0,0,0.22)';
   ctx.beginPath();
   ctx.ellipse(p.x, p.y + r * 0.8, cols * r * 1.3, rows * r * 0.8, 0, 0, Math.PI * 2);
@@ -265,6 +309,20 @@ function drawCluster(ctx, p, n, color) {
   }
 }
 
+// Distant enemy stronghold across the far horizon — gives the field a goal.
+function drawHQ(ctx, cam, c) {
+  const l = cam.project({ x: -1.05, z: HORIZON_Z }), r = cam.project({ x: 1.05, z: HORIZON_Z });
+  const w = r.x - l.x, h = cam.H * 0.05;
+  const y = l.y - h;
+  ctx.fillStyle = '#3a2f33';
+  ctx.fillRect(l.x, y, w, h);
+  ctx.fillStyle = hexA(c.enemy, 0.5);
+  ctx.fillRect(l.x, y, w, h * 0.25);
+  ctx.fillStyle = '#3a2f33';
+  const n = 9, mw = w / (n * 2);
+  for (let i = 0; i < n; i++) ctx.fillRect(l.x + (i * 2 + 0.5) * mw, y - h * 0.4, mw, h * 0.4);
+}
+
 // Cross-field rows that scroll toward the squad to convey forward motion.
 function drawRows(ctx, cam, dist, color, spacing) {
   ctx.strokeStyle = color; ctx.lineWidth = 2;
@@ -273,21 +331,6 @@ function drawRows(ctx, cam, dist, color, spacing) {
     const a = cam.project({ x: -1.05, z: rz }), b = cam.project({ x: 1.05, z: rz });
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
-}
-
-function drawTracers(ctx, from, to, time, color) {
-  for (let k = 0; k < 4; k++) {
-    const f = (time * 3.2 + k / 4) % 1;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(from.x + (to.x - from.x) * f, from.y + (to.y - from.y) * f, 3, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // muzzle flash + impact
-  ctx.fillStyle = 'rgba(255,255,255,0.8)';
-  ctx.beginPath(); ctx.arc(from.x, from.y, 4, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = hexA(color, 0.9);
-  ctx.beginPath(); ctx.arc(to.x, to.y, 4 + 2 * Math.abs(Math.sin(time * 18)), 0, Math.PI * 2); ctx.fill();
 }
 
 function shade(hex, f) {

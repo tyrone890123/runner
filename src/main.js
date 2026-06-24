@@ -138,6 +138,29 @@ setInterval(() => {
   }
 }, 250);
 
+// --- Panel hide/show --------------------------------------------------------
+const panelHide = document.getElementById('panelHide');
+const panelShow = document.getElementById('panelShow');
+function setPanelHidden(hidden) {
+  document.body.classList.toggle('panel-hidden', hidden);
+  panelHide.setAttribute('aria-expanded', String(!hidden));
+  panelShow.hidden = !hidden;
+  // Canvas client size changed; re-fit the backing store on the next frame.
+  requestAnimationFrame(fit);
+}
+panelHide.addEventListener('click', () => setPanelHidden(true));
+panelShow.addEventListener('click', () => setPanelHidden(false));
+
+// --- Stats (HUD) hide/show --------------------------------------------------
+const hudHide = document.querySelector('#hud [data-hud-hide]');
+const hudShow = document.getElementById('hudShow');
+function setHudHidden(hidden) {
+  document.body.classList.toggle('hud-hidden', hidden);
+  hudShow.hidden = !hidden;
+}
+if (hudHide) hudHide.addEventListener('click', () => setHudHidden(true));
+hudShow.addEventListener('click', () => setHudHidden(false));
+
 buildPanel();
 fit();
 document.documentElement.style.setProperty('--sky', resolveTheme(config).sky);

@@ -11,6 +11,7 @@ const JUMP_T = 0.6;        // seconds airborne
 const SLIDE_T = 0.55;
 
 const obsPool = createPool(() => ({ kind: 'obstacle' }), (o) => { o.dead = false; o.passed = false; });
+const coinPool = createPool(() => ({ kind: 'coin' }), (o) => { o.dead = false; });
 
 function laneX(i, count) {
   const half = Math.max(1, (count - 1) / 2);
@@ -43,19 +44,27 @@ export const runner = {
   spawnAhead(z, config, rng, ramp) {
     const out = [];
     const n = config.laneCount;
-    const freq = Math.min(0.95, 0.45 * config.obstacleFreq * ramp);
-    if (!rng.chance(freq)) return out;
-
-    // Never block every lane: leave at least one escape lane.
-    const count = Math.min(n - 1, rng.chance(0.3 * config.obstacleFreq) ? 2 : 1);
     const lanes = [...Array(n).keys()];
     for (let k = lanes.length - 1; k > 0; k--) { const j = rng.int(0, k); [lanes[k], lanes[j]] = [lanes[j], lanes[k]]; }
-    const types = config.jumpSlide ? ['low', 'high', 'block'] : ['block'];
-    for (let i = 0; i < count; i++) {
-      const o = obsPool.acquire();
-      o.lane = lanes[i];
-      o.type = rng.pick(types);
-      out.push(o);
+
+    const freq = Math.min(0.95, 0.45 * config.obstacleFreq * ramp);
+    if (rng.chance(freq)) {
+      // Never block every lane: leave at least one escape lane.
+      const count = Math.min(n - 1, rng.chance(0.3 * config.obstacleFreq) ? 2 : 1);
+      const types = config.jumpSlide ? ['low', 'high', 'block'] : ['block'];
+      for (let i = 0; i < count; i++) {
+        const o = obsPool.acquire();
+        o.lane = lanes[i];
+        o.type = rng.pick(types);
+        out.push(o);
+      }
+    }
+
+    // Cosmetic coins (no effect on the agent — pure flavor) in a free lane.
+    if (rng.chance(0.3)) {
+      const coin = coinPool.acquire();
+      coin.lane = lanes[lanes.length - 1];
+      out.push(coin);
     }
     return out;
   },
@@ -129,6 +138,7 @@ export const runner = {
     if (agent.invuln > 0) agent.invuln -= 1 / 60;
     const gap = Math.abs(laneX(1, config.laneCount) - laneX(0, config.laneCount));
     for (const o of objects) {
+      if (o.kind === 'coin') { if (o.z <= -1) o.dead = true; continue; }
       if (o.kind !== 'obstacle' || o.passed || o.dead) continue;
       if (o.z > 0) continue;
       o.passed = true;
@@ -157,8 +167,15 @@ export const runner = {
     const c = config.colors, W = cam.W, H = cam.H, n = config.laneCount;
     const agent = world.agent;
 
-    ctx.fillStyle = c.sky;
+    const sky = ctx.createLinearGradient(0, 0, 0, H * 0.18);
+    sky.addColorStop(0, c.sky);
+    sky.addColorStop(1, '#bfe3f5');
+    ctx.fillStyle = sky;
     ctx.fillRect(0, 0, W, H * 0.18);
+    // Sun + drifting clouds
+    ctx.fillStyle = hexA(c.gold, 0.9);
+    ctx.beginPath(); ctx.arc(W * 0.8, H * 0.07, H * 0.05, 0, Math.PI * 2); ctx.fill();
+    drawClouds(ctx, W, H, world.time);
     const g = ctx.createLinearGradient(0, H * 0.18, 0, H);
     g.addColorStop(0, '#7d8893');
     g.addColorStop(1, c.track);
@@ -167,6 +184,9 @@ export const runner = {
 
     const gap = laneX(1, n) - laneX(0, n);
     const edgeHalf = SPREAD + gap / 2;
+
+    // Roadside posts whip past for a strong speed cue.
+    drawPosts(ctx, cam, world.distance, edgeHalf + 0.28);
 
     // Track surface
     const nl = cam.project({ x: -edgeHalf, z: 0 }), nr = cam.project({ x: edgeHalf, z: 0 });
@@ -200,7 +220,8 @@ export const runner = {
     for (const o of objs) {
       if (o.dead || o.z < -2) continue;
       const p = cam.project({ x: laneX(o.lane, n), z: o.z });
-      drawObstacle(ctx, o, p, W, H, c);
+      if (o.kind === 'coin') drawCoin(ctx, p, H, world.time, c);
+      else drawObstacle(ctx, o, p, W, H, c);
     }
 
     drawRunner(ctx, agent, cam, config, world.time);
@@ -216,7 +237,10 @@ export const runner = {
     return { decision, agent: agent.lives > 0 ? `♥${agent.lives + 1}` : 'live' };
   },
 
-  release(o) { if (o.kind === 'obstacle') obsPool.release(o); },
+  release(o) {
+    if (o.kind === 'obstacle') obsPool.release(o);
+    else if (o.kind === 'coin') coinPool.release(o);
+  },
 };
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -324,6 +348,54 @@ function drawRunner(ctx, agent, cam, config, time) {
   // head
   ctx.fillStyle = shade(c.unit, 1.25);
   ctx.beginPath(); ctx.arc(p.x, topY - figH * 0.1, figH * 0.15, 0, Math.PI * 2); ctx.fill();
+}
+
+function cloud(ctx, x, y, r) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.arc(x + r, y + r * 0.25, r * 0.8, 0, Math.PI * 2);
+  ctx.arc(x - r, y + r * 0.25, r * 0.8, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawClouds(ctx, W, H, time) {
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  for (let i = 0; i < 3; i++) {
+    const cx = (((i * 0.4 + time * 0.01) % 1.3) - 0.15) * W;
+    cloud(ctx, cx, H * 0.05 + (i % 2) * H * 0.04, H * 0.03 * (1 + i * 0.15));
+  }
+}
+
+// Lamp posts beside the track, scrolling toward the camera.
+function drawPosts(ctx, cam, dist, x) {
+  const spacing = 9;
+  const off = ((dist % spacing) + spacing) % spacing;
+  for (let rz = HORIZON_Z - off; rz > 0.3; rz -= spacing) {
+    for (const sx of [-x, x]) {
+      const base = cam.project({ x: sx, z: rz });
+      const h = cam.H * 0.18 * base.scale;
+      const w = Math.max(2, cam.W * 0.01 * base.scale);
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.beginPath(); ctx.ellipse(base.x, base.y, w * 1.4, w * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#6b7480';
+      ctx.fillRect(base.x - w / 2, base.y - h, w, h);
+      ctx.fillStyle = '#aeb6bf';
+      ctx.fillRect(base.x - w * 1.6, base.y - h, w * 3.2, w * 1.4);
+    }
+  }
+}
+
+function drawCoin(ctx, p, H, time, c) {
+  const r = H * 0.03 * p.scale;
+  const bob = Math.sin(time * 4 + p.x * 0.05) * r * 0.3;
+  const sx = Math.abs(Math.cos(time * 5)); // spin
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath(); ctx.ellipse(p.x, p.y, r * 0.7, r * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+  const cy = p.y - H * 0.06 * p.scale + bob;
+  ctx.fillStyle = c.gold;
+  ctx.beginPath(); ctx.ellipse(p.x, cy, r * (0.3 + 0.7 * sx), r, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(p.x, cy, r * (0.3 + 0.7 * sx), r, 0, 0, Math.PI * 2); ctx.stroke();
 }
 
 // Scrolling cross-ties marching toward the camera as distance grows.
