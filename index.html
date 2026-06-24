@@ -11,12 +11,16 @@
   <main class="stage">
     <canvas id="game" aria-label="Autonomous gameplay simulation"></canvas>
     <div id="hud" class="hud" role="status" aria-live="off"></div>
+    <button id="panelShow" class="panel-show" type="button" aria-controls="panel" hidden>⚙ Controls</button>
   </main>
 
-  <aside class="panel" aria-label="Operator console">
+  <aside id="panel" class="panel" aria-label="Operator console">
     <header class="panel-head">
-      <h1>AUTOREEL</h1>
-      <p class="panel-sub">operator console · the agent plays itself</p>
+      <div class="panel-title">
+        <h1>AUTOREEL</h1>
+        <p class="panel-sub">operator console · the agent plays itself</p>
+      </div>
+      <button id="panelHide" class="icon-btn" type="button" aria-controls="panel" aria-expanded="true" title="Hide panel" aria-label="Hide panel">✕</button>
     </header>
     <div id="controls" class="panel-body"></div>
     <footer class="panel-foot">config lives in the URL — copy the link to share a setup</footer>

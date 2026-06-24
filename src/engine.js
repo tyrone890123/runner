@@ -26,6 +26,7 @@ export function createEngine(canvas, config, modes, hud) {
     agent: null,
     spawnCursor: 0,   // absolute distance up to which we've spawned
     respawns: 0,
+    flash: 0,         // brief overlay pulse on respawn
   };
 
   let mode = null;
@@ -81,6 +82,7 @@ export function createEngine(canvas, config, modes, hud) {
 
   function respawn() {
     world.respawns++;
+    world.flash = 0.5;
     mode.init(world, config, rng, world.agent); // mode resets the agent in place
     ai.reset();
   }
@@ -102,6 +104,7 @@ export function createEngine(canvas, config, modes, hud) {
 
   function update(dt) {
     world.time += dt;
+    if (world.flash > 0) world.flash = Math.max(0, world.flash - dt);
     const move = SCROLL * dt;
     world.distance += move;
 
@@ -146,6 +149,16 @@ export function createEngine(canvas, config, modes, hud) {
     const W = canvas.clientWidth, H = canvas.clientHeight;
     const cam = { W, H, project: (p) => mode.project(p, { W, H }) };
     mode.render(ctx, world, cam, config);
+
+    // Respawn pulse: a quick red edge-vignette so deaths are legible.
+    if (world.flash > 0 && !config.reduceMotion) {
+      const a = world.flash / 0.5;
+      const grd = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.7);
+      grd.addColorStop(0, 'rgba(245,51,63,0)');
+      grd.addColorStop(1, `rgba(245,51,63,${0.45 * a})`);
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, W, H);
+    }
   }
 
   let acc = 0, last = 0, raf = 0;

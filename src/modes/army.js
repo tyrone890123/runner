@@ -11,6 +11,13 @@ const LANE = 0.55;
 
 const gatePool = createPool(() => ({ kind: 'gate' }), (o) => { o.consumed = false; o.dead = false; });
 const enemyPool = createPool(() => ({ kind: 'enemy' }), (o) => { o.dead = false; });
+const burstPool = createPool(() => ({ kind: 'burst' }), (o) => { o.dead = false; });
+
+function spawnBurst(objects, x, z, size) {
+  const b = burstPool.acquire();
+  b.x = x; b.z = z; b.life = 0.4; b.maxLife = 0.4; b.size = size;
+  objects.push(b);
+}
 
 let pairId = 0;
 
@@ -125,12 +132,13 @@ export const army = {
     if (laneTgt) {
       laneTgt.hp -= agent.count * config.unitDamage * (1 / 60);
       agent.fireFx = laneTgt;
-      if (laneTgt.hp <= 0) laneTgt.dead = true;
+      if (laneTgt.hp <= 0) { laneTgt.dead = true; spawnBurst(objects, laneTgt.x, laneTgt.z, laneTgt.size); }
     } else {
       agent.fireFx = null;
     }
 
     for (const o of objects) {
+      if (o.kind === 'burst') { o.life -= 1 / 60; if (o.life <= 0) o.dead = true; continue; }
       if (o.z > 0) continue;
       if (o.kind === 'gate' && !o.consumed) {
         const matched = (o.side === 'L' && agent.x < 0) || (o.side === 'R' && agent.x >= 0);
@@ -141,6 +149,7 @@ export const army = {
         // other lanes were dodged. Steering (AI skill) therefore matters.
         if (Math.abs(o.x - agent.x) < 0.32) {
           agent.count -= Math.max(1, Math.ceil(o.hp / config.unitHp));
+          spawnBurst(objects, o.x, 1, o.size);
         }
         o.dead = true;
       }
@@ -163,6 +172,7 @@ export const army = {
     ctx.fillRect(0, 0, W, H);
     // Scrolling turf rows convey the advance.
     drawRows(ctx, cam, world.distance, 'rgba(255,255,255,0.05)', 6);
+    drawHQ(ctx, cam, c);
     // Lane guides
     ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 1;
     for (const lx of [-LANE, 0, LANE]) {
@@ -205,6 +215,13 @@ export const army = {
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
         ctx.strokeText(String(o.size), p.x, top - 2);
         ctx.fillText(String(o.size), p.x, top - 2);
+      } else if (o.kind === 'burst') {
+        const t = 1 - o.life / o.maxLife;
+        const r = (10 + (o.size || 3) * 3) * p.scale * (0.5 + t);
+        ctx.strokeStyle = hexA(c.gold, 1 - t); ctx.lineWidth = 3 * (1 - t) + 1;
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = hexA('#ffffff', (1 - t) * 0.7);
+        ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.4, 0, Math.PI * 2); ctx.fill();
       }
     }
 
@@ -238,6 +255,7 @@ export const army = {
   release(o) {
     if (o.kind === 'gate') gatePool.release(o);
     else if (o.kind === 'enemy') enemyPool.release(o);
+    else if (o.kind === 'burst') burstPool.release(o);
   },
 };
 
@@ -263,6 +281,21 @@ function drawCluster(ctx, p, n, color) {
       ctx.beginPath(); ctx.arc(p.x + ox - r * 0.3, p.y + oy - r * 0.3, r * 0.5, 0, Math.PI * 2); ctx.fill();
     }
   }
+}
+
+// Distant enemy stronghold across the far horizon — gives the field a goal.
+function drawHQ(ctx, cam, c) {
+  const l = cam.project({ x: -1.05, z: HORIZON_Z }), r = cam.project({ x: 1.05, z: HORIZON_Z });
+  const w = r.x - l.x, h = cam.H * 0.05;
+  const y = l.y - h;
+  ctx.fillStyle = '#3a2f33';
+  ctx.fillRect(l.x, y, w, h);
+  ctx.fillStyle = hexA(c.enemy, 0.5);
+  ctx.fillRect(l.x, y, w, h * 0.25);
+  // crenellations
+  ctx.fillStyle = '#3a2f33';
+  const n = 9, mw = w / (n * 2);
+  for (let i = 0; i < n; i++) ctx.fillRect(l.x + (i * 2 + 0.5) * mw, y - h * 0.4, mw, h * 0.4);
 }
 
 // Cross-field rows that scroll toward the squad to convey forward motion.

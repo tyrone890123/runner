@@ -99,6 +99,10 @@ body {
 .panel-head {
   padding: 16px 16px 12px;
   border-bottom: 1px solid var(--hairline);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .panel-head h1 {
@@ -107,6 +111,47 @@ body {
   letter-spacing: 0.18em;
   color: var(--readout);
 }
+
+.icon-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--label);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.icon-btn:hover { color: #fff; border-color: var(--label); }
+.icon-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* Floating button that restores the panel once it's hidden. */
+.panel-show {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--hairline);
+  background: rgba(14, 17, 22, 0.86);
+  color: var(--readout);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+.panel-show:hover { color: #fff; border-color: var(--label); }
+.panel-show:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* Collapsed state: canvas takes the whole viewport. */
+body.panel-hidden {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+body.panel-hidden .panel { display: none; }
+body.panel-hidden .panel-show { display: block; }
 
 .panel-sub {
   margin: 4px 0 0;

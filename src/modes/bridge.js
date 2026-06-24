@@ -194,12 +194,17 @@ export const bridge = {
     water.addColorStop(1, '#1d7fb0');
     ctx.fillStyle = water;
     ctx.fillRect(0, H * HORIZON_Y, W, H);
+    // Drifting water highlights (animated shimmer).
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     ctx.lineWidth = 2;
     for (let i = 1; i <= 3; i++) {
       const y = H * HORIZON_Y + H * (1 - HORIZON_Y) * (i / 7);
+      const dash = (world.time * 30 * i) % 60;
+      ctx.setLineDash([26, 34]); ctx.lineDashOffset = -dash;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
     }
+    ctx.setLineDash([]); ctx.lineDashOffset = 0;
+    drawClouds(ctx, W, H, world.time);
 
     // Bridge deck (perspective trapezoid)
     const nl = cam.project({ x: -1.05, z: 0 }), nr = cam.project({ x: 1.05, z: 0 });
@@ -221,6 +226,9 @@ export const bridge = {
     ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(nl.x, nl.y); ctx.lineTo(fl.x, fl.y);
     ctx.moveTo(nr.x, nr.y); ctx.lineTo(fr.x, fr.y); ctx.stroke();
+
+    // Suspension towers march toward the camera (cable-stayed look + identity).
+    drawPylons(ctx, cam, world.distance);
 
     // World objects, far to near
     const objs = world.objects.slice().sort((a, b) => b.z - a.z);
@@ -303,6 +311,49 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+function cloud(ctx, x, y, r) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.arc(x + r, y + r * 0.25, r * 0.8, 0, Math.PI * 2);
+  ctx.arc(x - r, y + r * 0.25, r * 0.8, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawClouds(ctx, W, H, time) {
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  for (let i = 0; i < 4; i++) {
+    const cx = (((i * 0.31 + time * 0.012) % 1.3) - 0.15) * W;
+    const cy = H * 0.05 + (i % 2) * H * 0.05;
+    cloud(ctx, cx, cy, H * 0.035 * (1 + i * 0.12));
+  }
+}
+
+function drawPylons(ctx, cam, dist) {
+  const spacing = 22;
+  const off = ((dist % spacing) + spacing) % spacing;
+  for (let rz = HORIZON_Z - off; rz > 0.3; rz -= spacing) {
+    drawTower(ctx, cam, -1.0, rz);
+    drawTower(ctx, cam, 1.0, rz);
+  }
+}
+
+function drawTower(ctx, cam, x, z) {
+  const base = cam.project({ x, z });
+  const topY = base.y - cam.H * 0.36 * base.scale;
+  const wt = Math.max(2, cam.W * 0.014 * base.scale);
+  // stay cables down to the deck fore and aft
+  ctx.strokeStyle = 'rgba(40,60,80,0.45)'; ctx.lineWidth = 1;
+  const d1 = cam.project({ x: x * 0.6, z: z + 7 }), d2 = cam.project({ x: x * 0.6, z: z - 7 });
+  ctx.beginPath();
+  ctx.moveTo(base.x, topY); ctx.lineTo(d1.x, d1.y);
+  ctx.moveTo(base.x, topY); ctx.lineTo(d2.x, d2.y);
+  ctx.stroke();
+  // tower + crossbeam
+  ctx.fillStyle = 'rgba(40,60,80,0.9)';
+  ctx.fillRect(base.x - wt / 2, topY, wt, base.y - topY);
+  ctx.fillRect(base.x - wt * 1.6, topY + wt * 2, wt * 3.2, wt);
 }
 
 // Evenly spaced cross-deck lines that march toward the camera as distance grows.

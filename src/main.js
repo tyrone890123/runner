@@ -138,6 +138,19 @@ setInterval(() => {
   }
 }, 250);
 
+// --- Panel hide/show --------------------------------------------------------
+const panelHide = document.getElementById('panelHide');
+const panelShow = document.getElementById('panelShow');
+function setPanelHidden(hidden) {
+  document.body.classList.toggle('panel-hidden', hidden);
+  panelHide.setAttribute('aria-expanded', String(!hidden));
+  panelShow.hidden = !hidden;
+  // Canvas client size changed; re-fit the backing store on the next frame.
+  requestAnimationFrame(fit);
+}
+panelHide.addEventListener('click', () => setPanelHidden(true));
+panelShow.addEventListener('click', () => setPanelHidden(false));
+
 buildPanel();
 fit();
 document.documentElement.style.setProperty('--sky', resolveTheme(config).sky);
