@@ -151,6 +151,16 @@ function setPanelHidden(hidden) {
 panelHide.addEventListener('click', () => setPanelHidden(true));
 panelShow.addEventListener('click', () => setPanelHidden(false));
 
+// --- Stats (HUD) hide/show --------------------------------------------------
+const hudHide = document.querySelector('#hud [data-hud-hide]');
+const hudShow = document.getElementById('hudShow');
+function setHudHidden(hidden) {
+  document.body.classList.toggle('hud-hidden', hidden);
+  hudShow.hidden = !hidden;
+}
+if (hudHide) hudHide.addEventListener('click', () => setHudHidden(true));
+hudShow.addEventListener('click', () => setHudHidden(false));
+
 buildPanel();
 fit();
 document.documentElement.style.setProperty('--sky', resolveTheme(config).sky);
