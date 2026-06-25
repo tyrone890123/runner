@@ -1,6 +1,7 @@
-// Army Battle (Last War–style) — a squad of U units advances up a top-down
-// field. No guns (that overlaps with Bridge Runner's auto-fire): clusters are
-// resolved by *count on contact*.
+// Army Battle (Last War–style) — a squad of U units advances up the field,
+// drawn in one-point perspective like Bridge/Lane runner (the field recedes to
+// a horizon with the enemy HQ on it). No guns (that overlaps with Bridge
+// Runner's auto-fire): clusters are resolved by *count on contact*.
 //   - Red enemy clusters: if U > E you swarm/wrap them and win (losing E units);
 //     if they're bigger you're overrun → respawn.
 //   - Blue allied clusters (same colour as the squad): they join — U += A.
@@ -12,7 +13,8 @@ import { HORIZON_Z } from '../engine.js';
 import { createPool } from '../pool.js';
 
 const LANE = 0.55;
-const BAND = 0.30;   // how close in x a cluster must be to clash with the squad
+const BAND = 0.30;       // how close in x a cluster must be to clash with the squad
+const HORIZON_Y = 0.22;  // where the field meets the sky (screen fraction)
 
 const gatePool = createPool(() => ({ kind: 'gate' }), (o) => { o.consumed = false; o.dead = false; });
 const enemyPool = createPool(() => ({ kind: 'enemy' }), (o) => { o.dead = false; });
@@ -96,11 +98,17 @@ export const army = {
     return out;
   },
 
+  // One-point perspective like Bridge/Lane runner: the field recedes to a
+  // horizon, objects spawn small far away and grow as they near the squad.
   project(p, cam) {
-    const t = Math.max(0, Math.min(1, p.z / HORIZON_Z));
-    const topY = cam.H * 0.06, botY = cam.H * 0.88;
-    const s = 1 - 0.45 * t;
-    return { x: cam.W / 2 + p.x * cam.W * 0.40 * s, y: botY + (topY - botY) * t, scale: s };
+    const zz = Math.max(p.z, 0);
+    const s = 1 / (1 + zz * 0.05);
+    const horizonY = cam.H * HORIZON_Y, groundY = cam.H * 0.9;
+    return {
+      x: cam.W / 2 + p.x * cam.W * 0.46 * s,
+      y: horizonY + (groundY - horizonY) * s,
+      scale: s,
+    };
   },
 
   perceive(agent, objects) {
@@ -172,15 +180,23 @@ export const army = {
     const c = config.colors, W = cam.W, H = cam.H;
     const agent = world.agent;
 
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#3a4a2e');
-    g.addColorStop(1, '#52663f');
+    // Sky/backdrop above the horizon, hazy ground receding below it.
+    const horizonY = H * HORIZON_Y;
+    const sky = ctx.createLinearGradient(0, 0, 0, horizonY);
+    sky.addColorStop(0, '#aebfd0');
+    sky.addColorStop(1, '#cdd6c2');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, horizonY);
+    const g = ctx.createLinearGradient(0, horizonY, 0, H);
+    g.addColorStop(0, '#5d6e42');
+    g.addColorStop(1, '#3a4a2a');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-    drawRows(ctx, cam, world.distance, 'rgba(255,255,255,0.05)', 6);
+    ctx.fillRect(0, horizonY, W, H - horizonY);
+
+    drawRows(ctx, cam, world.distance, 'rgba(0,0,0,0.10)', 6);
     drawHQ(ctx, cam, c);
-    // Lane guides
-    ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 1;
+    // Lane guides converge toward the horizon.
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1;
     for (const lx of [-LANE, 0, LANE]) {
       const a = cam.project({ x: lx, z: 0 }), b = cam.project({ x: lx, z: HORIZON_Z });
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
